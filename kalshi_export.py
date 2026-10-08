@@ -117,6 +117,7 @@ def main():
     ap.add_argument("--out", default="kalshi")
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
+    ap.add_argument("--max-markets", type=int, default=0, help="smoke test: stop after N markets (0 = all)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -133,6 +134,8 @@ def main():
         c = ts(r[3])
         if c is not None and t0 <= c <= t1:
             markets[r[1]] = c
+    if a.max_markets:
+        markets = dict(sorted(markets.items(), key=lambda kv: kv[1])[: a.max_markets])
     print(f"markets to fetch trades for: {len(markets)}", flush=True)
 
     stats = {"live": 0, "historical": 0, "none": 0}
@@ -159,7 +162,7 @@ def main():
                             t.get("yes_price_dollars", t.get("yes_price")),
                             t.get("no_price_dollars", t.get("no_price")),
                             t.get("count_fp", t.get("count")), json.dumps(t)))
-            if i % 100 == 0:
+            if i % 100 == 0 or i < 5:
                 print(f"  {i}/{len(items)} markets, {stats}", flush=True)
     print(f"done: {stats}; errors {len(errors)}", flush=True)
     for e in errors[:10]:

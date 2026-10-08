@@ -10,6 +10,8 @@ on:
         default: "2026-04-01"
       end:
         default: "2026-10-07"
+      max_markets:
+        default: "0"
 
 permissions:
   contents: write
@@ -27,7 +29,7 @@ jobs:
       - name: Export
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python kalshi_export.py --out kalshi --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+        run: python kalshi_export.py --out kalshi --start "${{ inputs.start }}" --end "${{ inputs.end }}" --max-markets "${{ inputs.max_markets }}"
       - name: Commit to data branch
         run: |
           git config --global user.name "books-bot"
