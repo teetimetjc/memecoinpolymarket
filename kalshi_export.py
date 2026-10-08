@@ -152,7 +152,7 @@ def main():
     stats = {"live": 0, "historical": 0, "none": 0}
     errors = []
     sample_printed = False
-    with gzip.open(f"{a.out}/trades.csv.gz", "wt", newline="") as f, ThreadPoolExecutor(4) as pool:
+    with gzip.open(f"{a.out}/trades.csv.gz", "wt", newline="") as f, ThreadPoolExecutor(6) as pool:
         w = csv.writer(f)
         w.writerow(("ticker", "close_ts", "source", "created_time", "taker_side",
                     "yes_price", "no_price", "count"))
