@@ -7,8 +7,8 @@ Runs in GitHub Actions (kalshi_export.yml); the research container cannot reach 
 1. Reads tabs M15H and M15 of the Kalshi sheet with a READ-ONLY token
    (scope spreadsheets.readonly), keeps the five majors and the T-9 columns.
 2. For every one of those markets closing in [start, end], fetches Kalshi's public
-   trades in [close-540, close) (no credentials), falling back to the historical
-   trades endpoint when the live one returns nothing.
+   trades in [T-9, T-8), widening to [T-8, close) only for a missing taker side
+   (no credentials), falling back to the historical endpoint when the live one is empty.
 Writes kalshi/quotes.csv.gz and kalshi/trades.csv.gz. Writes nothing anywhere else.
 """
 import argparse
@@ -91,22 +91,33 @@ def kget(path, params, tries=4):
     return {"_error": err or "gave up"}
 
 
+def _fetch(path, ticker, t0, t1):
+    out, cursor = [], None
+    while True:
+        p = dict(ticker=ticker, min_ts=t0, max_ts=t1, limit=1000)
+        if cursor:
+            p["cursor"] = cursor
+        d = kget(path, p)
+        if "_error" in d:
+            return None, d["_error"]
+        out += d.get("trades", [])
+        cursor = d.get("cursor")
+        if not cursor:
+            return out, None
+
+
 def trades_for(ticker, close):
-    """All trades in [close-540, close), from the live endpoint, else the historical one."""
+    """Trades in [T-9, T-8); widened to [T-8, close) only if a taker side has none in the first minute.
+    Live endpoint first, the historical one if the live one returns nothing."""
     for path in ("/markets/trades", "/historical/trades"):
-        out, cursor, err = [], None, None
-        while True:
-            p = dict(ticker=ticker, min_ts=close - 540, max_ts=close, limit=1000)
-            if cursor:
-                p["cursor"] = cursor
-            d = kget(path, p)
-            if "_error" in d:
-                err = d["_error"]
-                break
-            out += d.get("trades", [])
-            cursor = d.get("cursor")
-            if not cursor:
-                break
+        first, err = _fetch(path, ticker, close - 540, close - 480)
+        if first is None:
+            continue
+        sides = {str(t.get("taker_side")).lower() for t in first}
+        out = list(first)
+        if not {"yes", "no"} <= sides:
+            more, err = _fetch(path, ticker, close - 480, close)
+            out += more or []
         if out:
             return path, out, None
     return None, [], err
@@ -144,7 +155,7 @@ def main():
     with gzip.open(f"{a.out}/trades.csv.gz", "wt", newline="") as f, ThreadPoolExecutor(4) as pool:
         w = csv.writer(f)
         w.writerow(("ticker", "close_ts", "source", "created_time", "taker_side",
-                    "yes_price", "no_price", "count", "raw"))
+                    "yes_price", "no_price", "count"))
         items = sorted(markets.items(), key=lambda kv: kv[1])
         for i, (res, (tk, c)) in enumerate(zip(pool.map(lambda kv: trades_for(*kv), items), items)):
             path, trades, err = res
@@ -161,8 +172,8 @@ def main():
                 w.writerow((tk, c, path, t.get("created_time"), t.get("taker_side"),
                             t.get("yes_price_dollars", t.get("yes_price")),
                             t.get("no_price_dollars", t.get("no_price")),
-                            t.get("count_fp", t.get("count")), json.dumps(t)))
-            if i % 100 == 0 or i < 5:
+                            t.get("count_fp", t.get("count"))))
+            if i % 500 == 0:
                 print(f"  {i}/{len(items)} markets, {stats}", flush=True)
     print(f"done: {stats}; errors {len(errors)}", flush=True)
     for e in errors[:10]:
