@@ -17,6 +17,19 @@ Order of work (from the Kalshi handoff):
 | `collect.py` | Settled markets + every taker fill → `data/pm.sqlite` (gitignored). Checks fills against the market's reported volume. |
 | `curve.py` | Entry price bucket → realised win rate, break-even, Wilson CI, edge with SEs clustered by window, ROI, fee, payoff ratio. |
 | `roundtrip.py` | Live order-book snapshot: cost of buying both sides (pure trading cost) and of one favourite bet. |
+| `verify_fee.py` | Checks the fee model against Polymarket's own wallet activity records. |
+| `snapshot.py` | Once a minute, both books of every live 5m/15m market → `books/YYYY-MM-DD.csv`. |
+| `book_summary.py` | Session summary (both-sides cost, favourite cost, depth by minutes-left) → Sheet tab `book_summary`. |
+
+## Scheduled collection (`.github/workflows/books.yml`)
+
+Hourly cron at :52 starts a 5h45m session (five 69-minute chunks); the concurrency group
+queues the next trigger as successor. After each chunk the raw snapshots are gzipped and
+committed to the `data` branch, and a summary row set is appended to the Sheet
+"Meme Coin - Polymarket". Needs one secret: `GOOGLE_SERVICE_ACCOUNT_JSON` (the same
+`meme-coin@meme-coin-496713` service account as the Kalshi sheet; the new sheet is shared with it).
+For a second independent trigger, point cron-job.org at `workflow_dispatch` at :22 with a
+fine-grained PAT that has **Actions: read and write only, no contents access**.
 
 ```
 pip install requests
@@ -33,9 +46,10 @@ python roundtrip.py --within-min 20
   not a UMA vote. Ties resolve **Up** ("greater than or equal").
 - Markets are flagged `restricted: true` (geo-restricted; US access needs a decision by the user).
 - Taker fee since ~2026-03-30 (`crypto_fees_v2`): `fee = shares × 0.07 × p × (1−p)`, takers only,
-  collected in shares on buys. Per $ staked that is `0.07 × (1−p)`: 3.5% at 50c, 0.6% at 92c, 6.9% at 2c.
-  Earlier markets used `0.25 × (p(1−p))²`. The formula is read from each market's own `feeSchedule`;
-  it has **not** yet been checked against on-chain settlement records.
+  added to the USDC paid. Per $ staked that is `0.07 × (1−p)`: 3.5% at 50c, 0.6% at 92c, 6.9% at 2c.
+  Earlier markets used `0.25 × (p(1−p))²`. **Verified** with `verify_fee.py`: the fee is added to
+  the USDC paid (`usdcSize = size×price + fee` to within $0.00001 on 13 of 14 wallets) and every share
+  redeems for the full $1; no shares are withheld.
 - Taker fills from `data-api /trades?takerOnly=true` sum exactly to gamma's `volume` on ~98% of
   markets; the rest are stored as `volume_mismatch` and excluded.
 - Order books list bids and asks worst-first. Best prices must be taken with max/min.

@@ -1,0 +1,69 @@
+name: books
+
+# Long-session pattern from the Kalshi project: GitHub drops scheduled
+# triggers, so each run records for ~5h45m in five 69-minute chunks, and the
+# concurrency group queues the next trigger as a pending successor that takes
+# over the moment this one ends. workflow_dispatch is there for a second,
+# independent external trigger (cron-job.org) offset from :52.
+on:
+  schedule:
+    - cron: "52 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: books
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # only to commit snapshots to the `data` branch
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests google-auth
+
+      - name: Check out data branch
+        run: |
+          git config --global user.name "books-bot"
+          git config --global user.email "books-bot@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git clone --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" store
+          else
+            mkdir store && cd store && git init -b data && \
+            git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}"
+          fi
+
+      - name: Record
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          for chunk in 1 2 3 4 5; do
+            start=$(date -u +%s)
+            rm -rf books
+            python snapshot.py --minutes 69 --outdir books || echo "snapshot exited with $? in chunk $chunk"
+            if ! ls books/*.csv >/dev/null 2>&1; then
+              echo "chunk $chunk recorded NOTHING"
+              continue
+            fi
+            if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+              python book_summary.py books/*.csv --since "$start" --sheet || echo "sheet summary FAILED in chunk $chunk"
+            else
+              echo "sheet summary skipped: GOOGLE_SERVICE_ACCOUNT_JSON secret not set"
+            fi
+            for f in books/*.csv; do
+              day=$(basename "$f" .csv)
+              mkdir -p "store/books/$day"
+              gzip -c "$f" > "store/books/$day/$(date -u -d @"$start" +%H%M).csv.gz"
+            done
+            (cd store && git add -A && git commit -qm "books $(date -u +%FT%H:%M)" && \
+             (git pull -q --rebase origin data 2>/dev/null || true) && git push -q origin HEAD:data) \
+             || echo "commit/push FAILED in chunk $chunk"
+          done

@@ -11,10 +11,11 @@ Unit of observation
   by window_end, because every asset's market in the same 15-minute window
   moves with the same crypto tape.
 
-Fees (from each market's own feeSchedule; NOT yet verified on-chain)
-  fee_usdc = size * rate * (p * (1 - p)) ** exponent, collected in shares on
-  buys (fee_usdc / p shares withheld), so each share bought pays out
-  payout_per_share = 1 - rate * (p(1-p))**exponent / p  if it wins.
+Fees (rate/exponent from each market's own feeSchedule)
+  fee_usdc = size * rate * (p * (1 - p)) ** exponent, ADDED to the USDC paid.
+  Every share still redeems for $1. Verified 2026-10-08 against data-api
+  /activity: usdcSize = size*price + fee_usdc to the cent, and positions and
+  redemptions show the full fill size (see verify_fee.py).
 
 Break-even win rate is the price paid grossed up for the fee, not 50%.
 """
@@ -38,10 +39,8 @@ def wilson(k, n, z=1.96):
     return (c - h, c + h)
 
 
-def payout_per_share(p, rate, expo):
-    if not rate:
-        return 1.0
-    return 1.0 - rate * (p * (1 - p)) ** expo / p
+def fee_per_share(p, rate, expo):
+    return rate * (p * (1 - p)) ** expo if rate else 0.0
 
 
 def cluster_mean_se(values_by_cluster):
@@ -88,18 +87,17 @@ def main():
         return
 
     # bucket -> (market, outcome) -> accumulators
-    sides = [defaultdict(lambda: dict(stake=0.0, shares=0.0, pnl=0.0, fee=0.0, lost_shares=0.0, n=0)) for _ in BUCKETS]
+    sides = [defaultdict(lambda: dict(stake=0.0, shares=0.0, pnl=0.0, fee=0.0, n=0)) for _ in BUCKETS]
     meta = {}
     for mid, series, wend, winner, rate, expo, oi, p, size, ts in rows:
         b = min(int(p * 20), 19)
         won = int(oi == winner)
-        pps = payout_per_share(p, rate, expo)
+        fee = size * fee_per_share(p, rate, expo)
         acc = sides[b][(mid, oi)]
-        acc["stake"] += size * p
+        acc["stake"] += size * p + fee  # total USDC paid, fee included
         acc["shares"] += size
-        acc["lost_shares"] += size * (1 - pps)  # shares withheld as the fee
-        acc["fee"] += size * p * (1 - pps)       # fee in USDC: withheld shares valued at the price paid
-        acc["pnl"] += size * pps * won - size * p
+        acc["fee"] += fee
+        acc["pnl"] += size * won - (size * p + fee)
         acc["n"] += 1
         meta[(mid, oi)] = (wend, won)
 
@@ -115,22 +113,18 @@ def main():
         shares = sum(v["shares"] for v in bk.values())
         pnl = sum(v["pnl"] for v in bk.values())
         fee = sum(v["fee"] for v in bk.values())
-        lost = sum(v["lost_shares"] for v in bk.values())
         fills = sum(v["n"] for v in bk.values())
-        avg_p = stake / shares
-        pps = 1 - lost / shares
-        breakeven = avg_p / pps
+        avg_p = (stake - fee) / shares   # price paid per share, before fee
+        breakeven = stake / shares        # all-in cost per $1 payout
         k = sum(meta[s][1] for s in bk)
         n = len(bk)
         wl, wh = wilson(k, n)
         # edge per market side = won - breakeven(side price), clustered by window
         by_win = defaultdict(list)
         for s, v in bk.items():
-            sp = v["stake"] / v["shares"]
-            spps = 1 - v["lost_shares"] / v["shares"]
-            by_win[meta[s][0]].append(meta[s][1] - sp / spps)
+            by_win[meta[s][0]].append(meta[s][1] - v["stake"] / v["shares"])
         edge, se, G = cluster_mean_se(by_win)
-        win_per_loss = (pps - avg_p) / avg_p  # $ won per $1 staked on a win; a loss costs $1
+        win_per_loss = (1 - breakeven) / breakeven  # $ won per $1 staked on a win; a loss costs $1
         r = (f"{lo:.2f}-{hi:.2f}", fills, n, G, avg_p, breakeven, k / n, wl, wh,
              edge, se, edge / se if se else float("nan"), pnl / stake, fee / stake, win_per_loss)
         out.append(r)
