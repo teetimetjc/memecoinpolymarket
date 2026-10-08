@@ -133,3 +133,21 @@ Data access: Kalshi's API is not reachable from the research container, so the e
 read-only GitHub Actions job (`kalshi_export.yml`) that reads the two sheet tabs (values only) and
 the public trades endpoint, and commits CSVs to this repo's `data` branch. It writes nothing to
 Kalshi, the Kalshi sheet, or the Kalshi repo.
+
+## Amendment 3 — 2026-10-08, before any scoring
+
+Found while validating the collector on 2026-04-28 data (no bucket results computed):
+
+- **Polymarket mid (GROSS)**: `clob /prices-history` is rejected: it sat at 0.50 while trades
+  printed at 0.01/0.99; median |first fill - history| was 5.5c against a 1c book spread.
+  Replacement: for side s with first fill p_s at t_s, and the other side's first fill p_o at t_o,
+  `mid_s = (p_s + 1 - p_o) / 2` if `|t_s - t_o| <= 15 s`, else the bet is excluded from GROSS
+  only and counted. Check on 91 markets: median p_up + p_down - 1 = 0.01, matching the 1c
+  spread on live books.
+- **Fee regime by close time**: `shares` for closes <= 2026-04-28 11:30 UTC, `usdc` for closes
+  >= 11:45 UTC (found by reconciling every window 11:00-15:45 on BTC and XRP that day). Two
+  markets per series-day are fully reconciled as a check (`recon` table); any DISAGREE is
+  reported. The per-market `volume_mismatch` exclusion of §6 is replaced by this sample check,
+  because reconciling every market means paging every fill (~250k/day for BTC alone).
+- **Data**: first taker BUY per side in [T-9, T-8), widened to [T-8, close) only for a side
+  with none in the first minute.
