@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pm import api
 
-DB = "data/pm.sqlite"
+DB = "data/pm.sqlite"  # override with --db
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS markets (
@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS markets (
     fee_exponent  REAL,
     uma_status    TEXT,
     auto_resolved INTEGER,
+    closed_time   INTEGER,          -- unix seconds the market was closed/resolved
+    fee_regime    TEXT,             -- usdc | shares | none | NULL (unreconciled)
     status        TEXT NOT NULL     -- ok | unresolved | volume_mismatch | error:...
 );
 CREATE TABLE IF NOT EXISTS fills (
@@ -54,9 +56,13 @@ CREATE INDEX IF NOT EXISTS fills_market ON fills(market_id);
 
 
 def parse_ts(s):
+    """Accepts '2026-10-08T18:15:56Z' and gamma's '2026-10-08 18:15:56+00'."""
     if not s:
         return None
-    return int(dt.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+    s = s.replace("Z", "+00:00")
+    if s.endswith(("+00", "-00")):
+        s += ":00"
+    return int(dt.datetime.fromisoformat(s).timestamp())
 
 
 def winner_of(m):
@@ -81,6 +87,7 @@ def process(series_slug, ev):
         taker_shares=None, n_fills=None,
         fee_type=m.get("feeType"), fee_rate=fee.get("rate"), fee_exponent=fee.get("exponent"),
         uma_status=m.get("umaResolutionStatus"), auto_resolved=int(bool(m.get("automaticallyResolved"))),
+        closed_time=parse_ts(ev.get("closedTime") or m.get("closedTime")), fee_regime=None,
         status="ok",
     )
     fills = []
@@ -94,9 +101,24 @@ def process(series_slug, ev):
                       float(t["size"]), int(t["timestamp"]), t["transactionHash"]))
     row["n_fills"] = len(fills)
     row["taker_shares"] = sum(f[4] for f in fills)
+    # Fee regime, identified per market by which accounting reconciles to gamma's volume
+    # (both verified against wallet /activity records, see verify_fee.py):
+    #   usdc  : fee = 0.07*p*(1-p) per share added to USDC paid; trade sizes are gross.
+    #   shares: 0.072*(1-p) of each bought share withheld; the data API reports BUY sizes
+    #           net of twice that, so gross = size / (1 - 0.144*(1-p)). Until ~late April 2026.
+    tol = max(1.0, 0.001 * row["volume"])
+    gross_shares = sum(f[4] / (1 - 0.144 * (1 - f[3])) if f[2] == "BUY" else f[4] for f in fills)
+    if not row["fee_rate"]:
+        row["fee_regime"] = "none" if abs(row["taker_shares"] - row["volume"]) <= tol else None
+    elif abs(row["taker_shares"] - row["volume"]) <= tol:
+        row["fee_regime"] = "usdc"
+    elif abs(gross_shares - row["volume"]) <= tol:
+        row["fee_regime"] = "shares"
+    else:
+        row["fee_regime"] = None
     if row["winner"] is None:
         row["status"] = "unresolved"
-    elif abs(row["taker_shares"] - row["volume"]) > max(1.0, 0.001 * row["volume"]):
+    elif row["fee_regime"] is None:
         row["status"] = "volume_mismatch"
     return row, fills
 
@@ -107,10 +129,15 @@ def main():
     ap.add_argument("--start", required=True, help="first UTC day, YYYY-MM-DD")
     ap.add_argument("--end", required=True, help="last UTC day, inclusive")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--db", default=DB)
     a = ap.parse_args()
 
-    db = sqlite3.connect(DB)
+    db = sqlite3.connect(a.db)
     db.executescript(SCHEMA)
+    cols = {r[1] for r in db.execute("PRAGMA table_info(markets)")}
+    for col, typ in (("closed_time", "INTEGER"), ("fee_regime", "TEXT")):
+        if col not in cols:  # databases created before these columns existed
+            db.execute(f"ALTER TABLE markets ADD COLUMN {col} {typ}")
     have = {r[0] for r in db.execute("SELECT market_id FROM markets WHERE status NOT LIKE 'error:%'")}
 
     d0, d1 = dt.date.fromisoformat(a.start), dt.date.fromisoformat(a.end)

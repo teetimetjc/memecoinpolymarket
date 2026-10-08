@@ -91,3 +91,21 @@ On the holdout (2026-04-01 to 2026-09-07), band total, Up side:
 - PASS if NET-all per bet > 0 AND its clustered 95% interval excludes 0.
 - Otherwise FAIL (including "not distinguishable from zero"). The n-needed figure is reported.
 No other row decides it.
+
+## Amendment 1 — 2026-10-08, before any holdout scoring
+
+Found while validating the April data (no results had been computed): Polymarket changed
+**how** the crypto taker fee is charged inside the window, between 2026-04-15 and 2026-04-29.
+
+- Regime `shares` (earlier): no USDC fee; `0.072 * u * (1-p)` of the bought shares are withheld,
+  so a win pays `u * (1 - 0.072*(1-p))`. Verified exactly on 5 of 5 wallets (activity BUY size
+  vs REDEEM size). The data API reports these BUY sizes net of twice the withheld amount.
+- Regime `usdc` (later): as §3, fee `u * 0.07 * p * (1-p)` added to USDC paid.
+
+Each market's regime is identified from its own records (which accounting reconciles its fills
+to its reported volume, `collect.py`); a market that reconciles under neither is excluded as
+`volume_mismatch` and counted. In §3, for regime `shares`, the fee f in dollars is
+`0.072 * u * (1-p) * w` (it is only lost when the bet wins), so NET-fee = `u*w*(1-0.072*(1-p)) - u*m`
+and NET-all = `u*w*(1-0.072*(1-p)) - u*p`. Break-even win rate for a `shares` bet is
+`p / (1 - 0.072*(1-p))`. Results are also reported split by regime.
+Nothing else in the spec changes.
