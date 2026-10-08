@@ -45,7 +45,9 @@ def read_tabs():
     creds.refresh(Request())
     out = []
     for tab in TABS:
-        r = requests.get(f"https://sheets.googleapis.com/v4/spreadsheets/{KALSHI_SHEET}/values/{tab}",
+        # Quote the tab name: unquoted, "M15" is read as the single CELL M15.
+        rng = requests.utils.quote(f"'{tab}'", safe="")
+        r = requests.get(f"https://sheets.googleapis.com/v4/spreadsheets/{KALSHI_SHEET}/values/{rng}",
                          headers={"Authorization": f"Bearer {creds.token}"}, timeout=120)
         r.raise_for_status()
         rows = r.json().get("values", [])
