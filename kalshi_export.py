@@ -68,20 +68,27 @@ def read_tabs():
 S = requests.Session()
 
 
-def kget(path, params, tries=6):
-    delay = 1.0
+_reported = []
+
+
+def kget(path, params, tries=4):
+    delay, err = 1.0, None
     for _ in range(tries):
         try:
-            r = S.get(HOST + path, params=params, timeout=30)
+            r = S.get(HOST + path, params=params, timeout=20)
             if r.status_code == 200:
                 return r.json()
+            err = f"HTTP {r.status_code}: {r.text[:120]}"
             if r.status_code not in (429, 500, 502, 503, 504):
-                return {"_error": f"HTTP {r.status_code}: {r.text[:120]}"}
+                break
         except requests.RequestException as e:
-            err = repr(e)
+            err = repr(e)[:120]
         time.sleep(delay)
         delay *= 2
-    return {"_error": "gave up"}
+    if len(_reported) < 5:  # say why, immediately, the first few times
+        _reported.append(err)
+        print(f"  kalshi {path} {params.get('ticker')}: {err}", flush=True)
+    return {"_error": err or "gave up"}
 
 
 def trades_for(ticker, close):
@@ -152,7 +159,7 @@ def main():
                             t.get("yes_price_dollars", t.get("yes_price")),
                             t.get("no_price_dollars", t.get("no_price")),
                             t.get("count_fp", t.get("count")), json.dumps(t)))
-            if i % 2000 == 0:
+            if i % 100 == 0:
                 print(f"  {i}/{len(items)} markets, {stats}", flush=True)
     print(f"done: {stats}; errors {len(errors)}", flush=True)
     for e in errors[:10]:
