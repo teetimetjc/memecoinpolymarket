@@ -109,3 +109,27 @@ to its reported volume, `collect.py`); a market that reconciles under neither is
 and NET-all = `u*w*(1-0.072*(1-p)) - u*p`. Break-even win rate for a `shares` bet is
 `p / (1 - 0.072*(1-p))`. Results are also reported split by regime.
 Nothing else in the spec changes.
+
+## Amendment 2 — 2026-10-08, before any scoring
+
+Read from the Kalshi repo's own frozen spec (`specs/narrow_slice.md`, 2026-10-05), which the
+§1 summary had paraphrased:
+
+- **Band is `0.90 <= p < 0.96`** (96c excluded), not 0.895-0.965. Buckets are 90..95c by
+  `floor(100*p)`, plus the band total. This replaces §1's band and §4's buckets.
+- The Kalshi backtest prices entry at the **quoted YES ask** at T-9 (`ask9`, sampled within
+  +/-45 s of T-9, tabs `M15H`/`M15` of the Kalshi sheet), not at a fill. Its spec uses $10 stakes
+  and an unrounded fee; this test uses §1's 4 units and the cent-rounded fee for both rows.
+
+Kalshi rows are therefore produced two ways, both reported:
+- **K-quote**: entry `ask9`, mid `(bid9+ask9)/2`. This is the existing Kalshi backtest, re-scored.
+- **K-fill**: entry = first taker trade with `taker_side = yes` (mirror: `no`) at or after
+  `close - 540 s`, from Kalshi's public trades API; mid from the same row's bid9/ask9. This is
+  measured exactly like the Polymarket row and is the one the head-to-head uses.
+The gap between K-quote and K-fill is reported as its own line: it measures how much the
+quote-vs-fill definition alone moves the result.
+
+Data access: Kalshi's API is not reachable from the research container, so the export runs as a
+read-only GitHub Actions job (`kalshi_export.yml`) that reads the two sheet tabs (values only) and
+the public trades endpoint, and commits CSVs to this repo's `data` branch. It writes nothing to
+Kalshi, the Kalshi sheet, or the Kalshi repo.
