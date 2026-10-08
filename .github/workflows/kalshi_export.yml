@@ -1,0 +1,43 @@
+name: kalshi_export
+
+# One-off, manually started. Read-only on Kalshi: reads two tabs of the Kalshi
+# sheet with a read-only token and Kalshi's public trades endpoint, then commits
+# the CSVs to this repo's `data` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        default: "2026-04-01"
+      end:
+        default: "2026-10-07"
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests google-auth
+      - name: Export
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python kalshi_export.py --out kalshi --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+      - name: Commit to data branch
+        run: |
+          git config --global user.name "books-bot"
+          git config --global user.email "books-bot@users.noreply.github.com"
+          url="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}"
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git clone --depth 1 --branch data "$url" store
+          else
+            mkdir store && cd store && git init -b data && git remote add origin "$url" && cd ..
+          fi
+          mkdir -p store/kalshi && cp kalshi/*.csv.gz store/kalshi/
+          cd store && git add -A && git commit -qm "kalshi export ${{ inputs.start }}..${{ inputs.end }}" && \
+            (git pull -q --rebase origin data || true) && git push -q origin HEAD:data
