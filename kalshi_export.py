@@ -133,7 +133,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
 
     rows = read_tabs()
-    with gzip.open(f"{a.out}/quotes.csv.gz", "wt", newline="") as f:
+    with gzip.open(f"{a.out}/quotes_{a.start}_{a.end}.csv.gz", "wt", newline="") as f:
         w = csv.writer(f)
         w.writerow(("tab",) + KEEP)
         w.writerows(rows)
@@ -152,10 +152,13 @@ def main():
     stats = {"live": 0, "historical": 0, "none": 0}
     errors = []
     sample_printed = False
-    with gzip.open(f"{a.out}/trades.csv.gz", "wt", newline="") as f, ThreadPoolExecutor(6) as pool:
+    tag = f"{a.start}_{a.end}"
+    # Only what the spec scores is kept: the FIRST yes-taker and FIRST no-taker trade at or
+    # after T-9 per market (a full dump was 105 MB, over GitHub's file limit, and lost a run).
+    with gzip.open(f"{a.out}/trades_{tag}.csv.gz", "wt", newline="") as f, ThreadPoolExecutor(6) as pool:
         w = csv.writer(f)
         w.writerow(("ticker", "close_ts", "source", "created_time", "taker_side",
-                    "yes_price", "no_price", "count"))
+                    "yes_price", "no_price", "count", "n_trades_fetched"))
         items = sorted(markets.items(), key=lambda kv: kv[1])
         for i, (res, (tk, c)) in enumerate(zip(pool.map(lambda kv: trades_for(*kv), items), items)):
             path, trades, err = res
@@ -168,11 +171,19 @@ def main():
                 if not sample_printed:
                     print("sample trade:", json.dumps(trades[0]), flush=True)
                     sample_printed = True
+            first = {}
             for t in trades:
-                w.writerow((tk, c, path, t.get("created_time"), t.get("taker_side"),
+                side = str(t.get("taker_side")).lower()
+                tt = ts(t.get("created_time"))
+                if side not in ("yes", "no") or tt is None or not (c - 540 <= tt < c):
+                    continue
+                if side not in first or tt < first[side][0]:
+                    first[side] = (tt, t)
+            for side, (_, t) in sorted(first.items()):
+                w.writerow((tk, c, path, t.get("created_time"), side,
                             t.get("yes_price_dollars", t.get("yes_price")),
                             t.get("no_price_dollars", t.get("no_price")),
-                            t.get("count_fp", t.get("count"))))
+                            t.get("count_fp", t.get("count")), len(trades)))
             if i % 500 == 0:
                 print(f"  {i}/{len(items)} markets, {stats}", flush=True)
     print(f"done: {stats}; errors {len(errors)}", flush=True)

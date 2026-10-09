@@ -30,6 +30,13 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python kalshi_export.py --out kalshi --start "${{ inputs.start }}" --end "${{ inputs.end }}" --max-markets "${{ inputs.max_markets }}"
+      - name: Keep the files even if the push fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalshi-${{ inputs.start }}-${{ inputs.end }}
+          path: kalshi/
+          if-no-files-found: warn
       - name: Commit to data branch
         run: |
           git config --global user.name "books-bot"
@@ -42,4 +49,4 @@ jobs:
           fi
           mkdir -p store/kalshi && cp kalshi/*.csv.gz store/kalshi/
           cd store && git add -A && git commit -qm "kalshi export ${{ inputs.start }}..${{ inputs.end }}" && \
-            (git pull -q --rebase origin data || true) && git push -q origin HEAD:data
+            for i in 1 2 3; do (git pull -q --rebase origin data || true) && git push -q origin HEAD:data && break; sleep 5; done

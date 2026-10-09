@@ -123,19 +123,21 @@ def load_pm():
 
 # -------------------------------------------------------------------- Kalshi
 def load_kalshi():
-    q_path, t_path = "data/kalshi/quotes.csv.gz", "data/kalshi/trades.csv.gz"
-    if not os.path.exists(q_path):
+    q_paths = sorted(glob.glob("data/kalshi/quotes_*.csv.gz"))
+    t_paths = sorted(glob.glob("data/kalshi/trades_*.csv.gz"))
+    if not q_paths:
         return [], [], Counter({"no Kalshi export yet": 1})
     quotes, excl, dup = {}, Counter(), 0
-    with gzip.open(q_path, "rt") as f:
-        for r in csv.DictReader(f):
-            if r["Ticker"] in quotes:
-                dup += 1
-                continue
-            quotes[r["Ticker"]] = r
-    excl["duplicate ticker across tabs (kept first)"] = dup
+    for q_path in q_paths:  # each export re-reads the whole sheet: identical rows, dedupe by ticker
+        with gzip.open(q_path, "rt") as f:
+            for r in csv.DictReader(f):
+                if r["Ticker"] in quotes:
+                    dup += 1
+                    continue
+                quotes[r["Ticker"]] = r
+    excl["duplicate ticker across tabs/files (kept first)"] = dup
     first = defaultdict(dict)  # ticker -> side -> (ts, price)
-    if os.path.exists(t_path):
+    for t_path in t_paths:
         with gzip.open(t_path, "rt") as f:
             for r in csv.DictReader(f):
                 ts = kts(r["created_time"])
