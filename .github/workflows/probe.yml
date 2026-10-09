@@ -1,0 +1,22 @@
+name: probe
+
+# Manual 2-minute test of snapshot.py from GitHub's network (Kalshi is reachable here,
+# not from the research container). Prints rows; commits nothing.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python snapshot.py --minutes 2.1 --outdir probe
+      - run: |
+          head -1 probe/*.csv
+          grep ',kalshi,' probe/*.csv | head -12
+          echo "kalshi rows: $(grep -c ',kalshi,' probe/*.csv)  polymarket rows: $(grep -c ',polymarket,' probe/*.csv)"

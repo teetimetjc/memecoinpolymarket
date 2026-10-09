@@ -29,7 +29,7 @@ def summarise(path, since):
     pairs = defaultdict(dict)
     with open(path) as f:
         for r in csv.DictReader(f):
-            if int(r["snap_ts"]) >= since:
+            if int(r["snap_ts"]) >= since and r.get("venue", "polymarket") == "polymarket":
                 pairs[(r["snap_ts"], r["market_id"])][int(r["outcome_index"])] = r
     agg = defaultdict(lambda: dict(n=0, nq=0, both=[], fav=[], favp=[], depth=[]))
     for (_, _), sides in pairs.items():
