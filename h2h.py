@@ -212,8 +212,12 @@ def summarise(bs):
     n = len(bs)
     k = sum(b["won"] for b in bs)
     wl, wh = wilson(k, n)
-    g, gse, gn = cmean(bs, "gross")
-    nf, nfse, _ = cmean(bs, "net_fee")
+    # GROSS, NET-fee and NET-all(mid) on the SAME bets (those with a mid), so the three
+    # read as one cost ladder; NET-all over every bet is reported alongside.
+    wm = [b for b in bs if b["mid"] is not None]
+    g, gse, gn = cmean(wm, "gross")
+    nf, nfse, _ = cmean(wm, "net_fee")
+    nam, namse, _ = cmean(wm, "net_all")
     na, nase, _ = cmean(bs, "net_all")
     stake = statistics.mean(b["stake"] for b in bs)
     need = (1.96 * nase * math.sqrt(n) / abs(na)) ** 2 if na and nase == nase else float("nan")
@@ -221,25 +225,28 @@ def summarise(bs):
     return dict(bets=n, windows=len({b["close"] for b in bs}), avg_p=statistics.mean(b["p"] for b in bs),
                 avg_mid=statistics.mean(mids) if mids else float("nan"), n_mid=gn,
                 breakeven=statistics.mean(b["breakeven"] for b in bs), win=k / n, wl=wl, wh=wh,
-                gross=g, gross_se=gse, net_fee=nf, net_fee_se=nfse, net_all=na, net_all_se=nase,
+                gross=g, gross_se=gse, net_fee=nf, net_fee_se=nfse, net_all_mid=nam, net_all_mid_se=namse,
+                net_all=na, net_all_se=nase,
                 stake=stake, n_needed=need)
 
 
 def fmt_row(label, s, note=""):
     if not s:
-        return f"| {label} | 0 | | | | | | | | | {note} |"
+        return f"| {label} | 0 | | | | | | | | | | {note} |"
     pct = lambda x: f"{100 * x / s['stake']:+.2f}%"
     return (f"| {label} | {s['bets']:,} ({s['windows']:,}) | {s['avg_p']:.4f} | {s['breakeven']:.2%} | "
             f"{s['win']:.2%} [{s['wl']:.2%}, {s['wh']:.2%}] | "
             f"{s['gross']:+.4f} ± {1.96 * s['gross_se']:.4f} ({pct(s['gross'])}, n={s['n_mid']:,}) | "
             f"{s['net_fee']:+.4f} ({pct(s['net_fee'])}) | "
+            f"{s['net_all_mid']:+.4f} ± {1.96 * s['net_all_mid_se']:.4f} ({pct(s['net_all_mid'])}) | "
             f"{s['net_all']:+.4f} ± {1.96 * s['net_all_se']:.4f} ({pct(s['net_all'])}) | "
             f"{s['n_needed']:,.0f} | {note} |")
 
 
-HDR = ("| row | bets (windows) | avg fill | break-even | win rate [Wilson 95%] | GROSS $/bet ± 95% (% stake, n with mid) "
-       "| NET fees $/bet | NET all $/bet ± 95% (% stake) | bets needed | note |\n"
-       "|---|---|---|---|---|---|---|---|---|---|")
+HDR = ("| row | bets (windows) | avg fill | break-even | win rate [Wilson 95%] "
+       "| GROSS $/bet ± 95% (% stake, n with mid) | NET fees $/bet (same n) | NET all $/bet ± 95% (same n) "
+       "| NET all, every bet ± 95% | bets needed | note |\n"
+       "|---|---|---|---|---|---|---|---|---|---|---|")
 
 
 def window(bs, a, b):
