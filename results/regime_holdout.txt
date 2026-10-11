@@ -1,0 +1,32 @@
+
+== S1 (fav HIGH, split 0.00237079)
+discovery                    fav -0.0012±0.0528 (n=1,785)  other -0.0271±0.0590 (n=1,784)  diff +0.0259 t=+0.64
+bad 04-01..07-18             fav -0.0049±0.0551 (n=1,674)  other -0.0385±0.0653 (n=1,510)  diff +0.0336 t=+0.77
+good 07-19..10-07            fav +0.0531±0.0549 (n=1,309)  other +0.0217±0.0657 (n=1,234)  diff +0.0314 t=+0.72
+HOLDOUT                      fav +0.0530±0.0578 (n=1,198)  other +0.0177±0.0755 (n=960)  diff +0.0353 t=+0.73
+week-level Spearman rho = +0.20 over 28 weeks
+criteria [disc t>3, both periods same sign, weekly rho>0.3, holdout]: [False, True, False, False] => FAIL
+
+== S2 (fav LOW, split 0.01)
+discovery                    fav +0.0104±0.0718 (n=874)  other -0.0576±0.0835 (n=882)  diff +0.0679 t=+1.21
+bad 04-01..07-18             fav -0.0040±0.0771 (n=800)  other -0.0761±0.0900 (n=803)  diff +0.0721 t=+1.19
+good 07-19..10-07            fav +0.0820±0.0742 (n=576)  other -0.0140±0.0994 (n=488)  diff +0.0960 t=+1.52
+HOLDOUT                      fav +0.0696±0.0821 (n=502)  other -0.0420±0.1137 (n=409)  diff +0.1115 t=+1.56
+week-level Spearman rho = -0.06 over 28 weeks
+criteria [disc t>3, both periods same sign, weekly rho>0.3, holdout]: [False, True, False, False] => FAIL
+
+== S3 (fav 06-11)
+discovery                    fav +0.0213±0.0716 (n=911)  other -0.0263±0.0503 (n=2,658)  diff +0.0476 t=+1.07
+bad 04-01..07-18             fav +0.0095±0.0778 (n=814)  other -0.0312±0.0538 (n=2,370)  diff +0.0407 t=+0.84
+good 07-19..10-07            fav +0.1258±0.0714 (n=655)  other +0.0073±0.0544 (n=1,888)  diff +0.1184 t=+2.59
+HOLDOUT                      fav +0.1267±0.0790 (n=558)  other +0.0061±0.0590 (n=1,600)  diff +0.1207 t=+2.40
+week-level Spearman rho = -0.18 over 28 weeks
+criteria [disc t>3, both periods same sign, weekly rho>0.3, holdout]: [False, True, False, True] => FAIL
+
+== S4 (fav HIGH, split -0.00567189)
+discovery                    fav +0.0119±0.0570 (n=1,761)  other -0.0412±0.0620 (n=1,758)  diff +0.0531 t=+1.24
+bad 04-01..07-18             fav +0.0115±0.0628 (n=1,502)  other -0.0518±0.0648 (n=1,632)  diff +0.0633 t=+1.37
+good 07-19..10-07            fav +0.0164±0.0553 (n=1,865)  other +0.0969±0.0681 (n=678)  diff -0.0805 t=-1.80
+HOLDOUT                      fav +0.0167±0.0605 (n=1,606)  other +0.0971±0.0686 (n=552)  diff -0.0805 t=-1.72
+week-level Spearman rho = +0.44 over 28 weeks
+criteria [disc t>3, both periods same sign, weekly rho>0.3, holdout]: [False, False, True, False] => FAIL
