@@ -24,8 +24,8 @@ BLOCKS = ((0, 5), (6, 11), (12, 17), (18, 23))
 SERIES = {"BTC": "btc-up-or-down-15m", "ETH": "eth-up-or-down-15m", "SOL": "sol-up-or-down-15m",
           "XRP": "xrp-up-or-down-15m", "DOGE": "doge-up-or-down-15m"}
 # Filled in ONLY from the committed discovery amendment in specs/regime.md:
-FROZEN_MEDIANS = None  # e.g. {"S1": ..., "S2": ..., "S4": ...}
-FROZEN_FAVOURABLE = None  # e.g. {"S1": "LOW", "S2": "HIGH", "S3": "06-11", "S4": "HIGH"}
+FROZEN_MEDIANS = {"S1": 0.0023707908418923317, "S2": 0.010000000000000009, "S4": -0.0056718867359956526}
+FROZEN_FAVOURABLE = {"S1": "HIGH", "S2": "LOW", "S3": "06-11", "S4": "HIGH"}
 
 
 def ts(d, end=False):

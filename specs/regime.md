@@ -54,3 +54,20 @@ A signal **passes** only if ALL hold:
 
 A pass makes the filtered rule a candidate for forward paper trading only. Nothing here authorises
 real money.
+
+## Amendment 1 — 2026-10-11: discovery results and frozen thresholds (before holdout)
+`python regime.py discovery`, Up side, 2026-04-01..07-31:
+
+| signal | split (discovery median) | favourable | diff $/bet | clustered t | criterion 1 (t > 3) |
+|---|---|---|---|---|---|
+| S1 24h volatility | 0.00237079 | HIGH | +0.026 | 0.64 | FAIL |
+| S2 entry spread | 0.01 | LOW (< 1c) | +0.068 | 1.21 | FAIL |
+| S3 time of day | blocks | 06-11 UTC | +0.048 | 1.07 | FAIL |
+| S4 7-day rule P&L | -0.00567189 | HIGH | +0.053 | 1.24 | FAIL |
+
+All four fail criterion 1, so all four FAIL this spec; that is final. The holdout is scored once
+anyway, for the record only, with these thresholds (copied into regime.py):
+FROZEN_MEDIANS = {"S1": 0.0023707908418923317, "S2": 0.010000000000000009, "S4": -0.0056718867359956526}
+FROZEN_FAVOURABLE = {"S1": "HIGH", "S2": "LOW", "S3": "06-11", "S4": "HIGH"}
+Data note: ~2% of windows have no priceToBeat (e.g. 2026-05-04, 8 windows per series); S1 spans
+those gaps as single returns.
