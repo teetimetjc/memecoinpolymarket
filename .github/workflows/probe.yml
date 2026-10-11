@@ -18,5 +18,5 @@ jobs:
       - run: python snapshot.py --minutes 2.1 --outdir probe
       - run: |
           head -1 probe/*.csv
-          grep ',kalshi,' probe/*.csv | head -12
+          python -c "import csv,glob; r=[x for f in glob.glob('probe/*.csv') for x in csv.DictReader(open(f))]; import collections; g=collections.defaultdict(list); [g[x['snap_ts']].append((x['venue'],float(x['fetch_ts']))) for x in r]; [print(k, {v:round(max(t for w,t in l if w==v)-min(t for w,t in l if w==v),2) for v in set(w for w,_ in l)}, 'all', round(max(t for _,t in l)-min(t for _,t in l),2)) for k,l in g.items()]"
           echo "kalshi rows: $(grep -c ',kalshi,' probe/*.csv)  polymarket rows: $(grep -c ',polymarket,' probe/*.csv)"

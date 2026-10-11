@@ -23,6 +23,7 @@ import datetime as dt
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from pm import api
 
@@ -30,7 +31,7 @@ SERIES = [f"{a}-up-or-down-{h}" for h in ("5m", "15m") for a in ("btc", "eth", "
 WINDOW_AHEAD = 16  # minutes; covers a whole 15m window
 FIELDS = ["snap_ts", "venue", "series", "slug", "market_id", "window_end", "min_left", "outcome_index", "outcome",
           "best_bid", "best_ask", "bid_size", "ask_size", "ask_depth_1c", "ask_depth_3c", "last_trade",
-          "fee_rate", "fee_exp", "strike", "pair"]
+          "fee_rate", "fee_exp", "strike", "pair", "fetch_ts"]
 KALSHI = "https://api.elections.kalshi.com/trade-api/v2"
 # Kalshi series -> the Polymarket series it is paired with, and the shared asset key
 KALSHI_SERIES = {"KXBTC15M": "btc", "KXETH15M": "eth", "KXSOL15M": "sol", "KXXRP15M": "xrp", "KXDOGE15M": "doge"}
@@ -55,6 +56,7 @@ def upcoming(now, ids):
 
 def book_row(snap, mk, oi, outcome, token):
     b = api.book(token)
+    fetched = round(time.time(), 2)
     bids = [(float(o["price"]), float(o["size"])) for o in b.get("bids", [])]
     asks = [(float(o["price"]), float(o["size"])) for o in b.get("asks", [])]
     bb = max(bids) if bids else (None, None)  # books are listed worst-first
@@ -64,7 +66,7 @@ def book_row(snap, mk, oi, outcome, token):
     fee = m.get("feeSchedule") or {}
     asset = mk["series"].split("-")[0]
     return dict(snap_ts=int(snap), venue="polymarket", series=mk["series"], slug=m["slug"], market_id=m["id"],
-                window_end=int(mk["end"]), strike=mk["meta"].get("priceToBeat"),
+                window_end=int(mk["end"]), strike=mk["meta"].get("priceToBeat"), fetch_ts=fetched,
                 pair=f"{asset}:{int(mk['end'])}" if mk["series"].endswith("15m") else "",
                 min_left=round((mk["end"] - snap) / 60, 2), outcome_index=oi, outcome=outcome,
                 best_bid=bb[0], best_ask=ba[0], bid_size=bb[1], ask_size=ba[1],
@@ -88,6 +90,7 @@ def kalshi_rows(snap):
     for series, asset in KALSHI_SERIES.items():
         try:
             r = api._S.get(f"{KALSHI}/markets", params=dict(series_ticker=series, status="open", limit=50), timeout=20)
+            fetched = round(time.time(), 2)
             if r.status_code != 200:
                 problems.append(f"{series} HTTP {r.status_code}")
                 continue
@@ -109,7 +112,8 @@ def kalshi_rows(snap):
             base = dict(snap_ts=int(snap), venue="kalshi", series=series, slug=m.get("ticker"), market_id=m.get("ticker"),
                         window_end=int(end), min_left=round((end - snap) / 60, 2), ask_depth_1c=None, ask_depth_3c=None,
                         last_trade=_kf(m.get("last_price_dollars", m.get("last_price"))), fee_rate=0.07, fee_exp=1,
-                        strike=m.get("floor_strike"), pair=f"{asset}:{int(end)}", bid_size=None, ask_size=None)
+                        strike=m.get("floor_strike"), pair=f"{asset}:{int(end)}", bid_size=None, ask_size=None,
+                        fetch_ts=fetched)
             rows.append(dict(base, outcome_index=0, outcome="Yes", best_bid=yb, best_ask=ya))
             rows.append(dict(base, outcome_index=1, outcome="No",
                              best_bid=None if ya is None else round(1 - ya, 4),
@@ -130,6 +134,7 @@ def main():
     ids = {s: api.series_by_slug(s)["id"] for s in SERIES}
     stop = time.time() + a.minutes * 60
     markets, refreshed = [], 0
+    pool = ThreadPoolExecutor(16)
     while time.time() < stop:
         time.sleep((65 - time.time() % 60) % 60 or 60)  # wake at :05 past each minute
         now = time.time()
@@ -137,19 +142,25 @@ def main():
             if now - refreshed > 300:
                 markets, refreshed = upcoming(now, ids), now
             live = [mk for mk in markets if 0 < mk["end"] - now <= WINDOW_AHEAD * 60 and mk["m"].get("acceptingOrders")]
-            rows, missing = [], []
-            for mk in live:
-                for oi, (outcome, tok) in enumerate(zip(json.loads(mk["m"]["outcomes"]),
-                                                        json.loads(mk["m"]["clobTokenIds"]))):
-                    r = book_row(now, mk, oi, outcome, tok)
-                    rows.append(r)
-                    if r["best_ask"] is None:
-                        missing.append(f"{mk['m']['slug']}:{outcome}")
+            jobs = [(mk, oi, outcome, tok) for mk in live
+                    for oi, (outcome, tok) in enumerate(zip(json.loads(mk["m"]["outcomes"]),
+                                                            json.loads(mk["m"]["clobTokenIds"])))]
+            # Everything is fetched at once, Kalshi included, so the two venues are read within
+            # ~1-2 s of each other; sequential reads were ~20 s apart, which alone moved quotes
+            # by several cents near the close. Each row carries its own fetch_ts.
+            kfut = pool.submit(kalshi_rows, now)
+            rows = list(pool.map(lambda j: book_row(now, *j), jobs))
+            missing = [f"{j[0]['m']['slug']}:{j[2]}" for j, r in zip(jobs, rows) if r["best_ask"] is None]
         except Exception as e:  # one bad minute must not end the session; say why
             print(f"{iso(now)} ERROR {e!r}", flush=True)
             continue
-        krows, kprob = kalshi_rows(now)
+        try:
+            krows, kprob = kfut.result()
+        except Exception as e:
+            krows, kprob = [], [f"kalshi failed: {e!r}"[:80]]
         rows += krows
+        stamps = [r["fetch_ts"] for r in rows if r.get("fetch_ts")]
+        spread = f", fetch spread {max(stamps) - min(stamps):.1f}s" if stamps else ""
         path = os.path.join(a.outdir, dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime("%Y-%m-%d") + ".csv")
         new = not os.path.exists(path)
         with open(path, "a", newline="") as f:
@@ -157,7 +168,7 @@ def main():
             if new:
                 w.writeheader()
             w.writerows(rows)
-        print(f"{iso(now)} {len(live)} live markets, {len(rows)} rows ({len(krows)} Kalshi)"
+        print(f"{iso(now)} {len(live)} live markets, {len(rows)} rows ({len(krows)} Kalshi){spread}"
               + (f", KALSHI: {'; '.join(kprob[:3])}" if kprob else "")
               + (f", NO ASK: {', '.join(missing[:6])}" if missing else "")
               + ("" if live else f" (nothing live; {len(markets)} known upcoming)"), flush=True)
